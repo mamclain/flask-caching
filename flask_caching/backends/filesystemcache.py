@@ -123,13 +123,16 @@ class FileSystemCache(BaseCache):
             entries = self._list_dir()
             for idx, fname in enumerate(entries):
                 try:
+                    if not os.path.exists(fname):
+                        continue
                     remove = False
                     with open(fname, "rb") as f:
                         expires = pickle.load(f)
                     remove = (expires != 0 and expires <= now)
 
                     if remove:
-                        os.remove(fname)
+                        if os.path.exists(fname):
+                            os.remove(fname)
                 except (IOError, OSError):
                     pass
             self._update_count(value=len(self._list_dir()))
@@ -145,13 +148,16 @@ class FileSystemCache(BaseCache):
         # purge anything that is expired
         for idx, fname in enumerate(entries):
             try:
+                if not os.path.exists(fname):
+                    continue
                 remove = False
                 with open(fname, "rb") as f:
                     expires = pickle.load(f)
                 remove = (expires != 0 and expires <= now)
 
                 if remove:
-                    os.remove(fname)
+                    if os.path.exists(fname):
+                        os.remove(fname)
             except (IOError, OSError):
                 pass
 
@@ -168,6 +174,8 @@ class FileSystemCache(BaseCache):
         entries = self._list_dir()
 
         for idx, fname in enumerate(entries):
+            if not os.path.exists(fname):
+                continue
             try:
                 with open(fname, "rb") as f:
                     expires = pickle.load(f)
@@ -185,7 +193,11 @@ class FileSystemCache(BaseCache):
         purge_list = sorted(expires_list, key=lambda aa: (-aa["expires"]))[0:overage_amount]
 
         for item in purge_list:
-            os.remove(item["fname"])
+            try:
+                if os.path.exists(item["fname"]):
+                    os.remove(item["fname"])
+            except (IOError, OSError):
+                pass
 
         self._update_count(value=len(self._list_dir()))
 
