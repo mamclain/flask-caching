@@ -120,17 +120,50 @@ class FileSystemCache(BaseCache):
 
         entries = self._list_dir()
         now = time()
+
+        # purge anything that is expired
         for idx, fname in enumerate(entries):
             try:
                 remove = False
                 with open(fname, "rb") as f:
                     expires = pickle.load(f)
-                remove = (expires != 0 and expires <= now) or idx % 3 == 0
+                remove = (expires != 0 and expires <= now)
 
                 if remove:
                     os.remove(fname)
             except (IOError, OSError):
                 pass
+
+        self._update_count(value=len(self._list_dir()))
+
+        # see if we need to purge non expires events
+        if self._threshold == 0 or not self._file_count > self._threshold:
+            return
+
+        expires_list = []
+
+        entries = self._list_dir()
+
+        for idx, fname in enumerate(entries):
+            try:
+                with open(fname, "rb") as f:
+                    expires = pickle.load(f)
+                    expires_list.append(
+                        {
+                            "expires": expires,
+                            "fname": fname
+                        }
+                    )
+            except (IOError, OSError):
+                pass
+
+        overage_amount = self._file_count - self._threshold
+
+        purge_list = sorted(expires_list, key=lambda aa: (-aa[0]))[0:overage_amount]
+
+        for item in purge_list:
+            os.remove(item["fname"])
+
         self._update_count(value=len(self._list_dir()))
 
     def clear(self):
@@ -179,6 +212,11 @@ class FileSystemCache(BaseCache):
 
         timeout = self._normalize_timeout(timeout)
         filename = self._get_filename(key)
+        update_count = True
+
+        if os.path.exists(filename):
+            update_count = False
+
         try:
             fd, tmp = tempfile.mkstemp(
                 suffix=self._fs_transaction_suffix, dir=self._path
@@ -192,7 +230,7 @@ class FileSystemCache(BaseCache):
             return False
         else:
             # Management elements should not count towards threshold
-            if not mgmt_element:
+            if not mgmt_element and update_count:
                 self._update_count(delta=1)
             return True
 
