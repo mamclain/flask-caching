@@ -67,6 +67,8 @@ class FileSystemCache(BaseCache):
         self._mode = mode
         self._hash_method = hash_method
         self.ignore_errors = ignore_errors
+        self.cleanup_time = time()
+        self.cleanup_time_cycle = 5*60
 
         try:
             os.makedirs(self._path)
@@ -114,8 +116,27 @@ class FileSystemCache(BaseCache):
             and fn not in mgmt_files
         ]
 
+    def _prune_expired(self):
+        if time()-self.cleanup_time >= self.cleanup_time_cycle:
+            now = time()
+            self.cleanup_time = now
+            entries = self._list_dir()
+            for idx, fname in enumerate(entries):
+                try:
+                    remove = False
+                    with open(fname, "rb") as f:
+                        expires = pickle.load(f)
+                    remove = (expires != 0 and expires <= now)
+
+                    if remove:
+                        os.remove(fname)
+                except (IOError, OSError):
+                    pass
+            self._update_count(value=len(self._list_dir()))
+
     def _prune(self):
         if self._threshold == 0 or not self._file_count > self._threshold:
+            self._prune_expired()
             return
 
         entries = self._list_dir()
@@ -136,10 +157,12 @@ class FileSystemCache(BaseCache):
 
         self._update_count(value=len(self._list_dir()))
 
-        # see if we need to purge non expires events
+        # see if we need to purge active events
         if self._threshold == 0 or not self._file_count > self._threshold:
             return
 
+        # if so sort based on smallest to largest, as the time is now + offset in value
+        # so smaller will be nearest to expire event
         expires_list = []
 
         entries = self._list_dir()
@@ -159,7 +182,7 @@ class FileSystemCache(BaseCache):
 
         overage_amount = self._file_count - self._threshold
 
-        purge_list = sorted(expires_list, key=lambda aa: (-aa[0]))[0:overage_amount]
+        purge_list = sorted(expires_list, key=lambda aa: (-aa["expires"]))[0:overage_amount]
 
         for item in purge_list:
             os.remove(item["fname"])
